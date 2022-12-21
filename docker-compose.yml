@@ -1,7 +1,7 @@
 version: '3'
 services: 
   xrayr: 
-    image: ghcr.io/xrayr-project/xrayr:latest
+    image: ghcr.io/hoshinoneko/xrayr:latest
     volumes:
       - ./config:/etc/XrayR/
       - /etc/nginx/ssl:/etc/XrayR/ssl
