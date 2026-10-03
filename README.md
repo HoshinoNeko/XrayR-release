@@ -11,18 +11,79 @@ Find the source code here: [HoshinoNeko/XrayR](https://github.com/HoshinoNeko/Xr
 
 # 一键安装
 
-```
+### 标准版（默认，适合常规服务器）
+```bash
 bash <(curl -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/install.sh)
 ```
+
+### Minimal 版（适合小内存服务器）
+通过指定参数 `minimal` 安装精简版，全程无需交互确认，完全支持无人值守安装：
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/install.sh) minimal
+```
+
+## 版本说明
+
+从 `v0.9.6` 版本开始，XrayR 提供两个版本：
+
+| 版本 | 说明 | 适用场景 | 证书支持 |
+|------|------|--------|---------|
+| **标准版 (Standard)** | 包含完整功能和全部 DNS 提供商支持 | 常规服务器、需要自动申请证书 | 支持 ACME 自动申请 (`dns`/`http`/`tls`) 及本地文件证书 (`file`) |
+| **Minimal 版** | 精简版，去除了 lego 自动证书申请实现（去除大部分 DNS 提供商） | 小内存服务器、不需要自动申请证书 | 仅支持本地文件证书 (`CertMode: file`) 或无需证书 (`none`) |
+
+> [!NOTE]
+> Minimal 版本由于移除了 lego 库，显著减小了二进制体积及运行内存占用。Minimal 版本不支持自动申请证书，若节点需要 TLS，请使用外部工具（如 acme.sh / certbot）申请证书，并在配置中设置 `CertMode: file`。
+
+### 安装命令参考
+
+```bash
+# 安装最新标准版（默认）
+bash <(curl -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/install.sh)
+
+# 安装最新 Minimal 版
+bash <(curl -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/install.sh) minimal
+
+# 安装指定版本的标准版
+bash <(curl -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/install.sh) v0.9.6
+
+# 安装指定版本的 Minimal 版（Minimal 自 v0.9.6 开始提供）
+bash <(curl -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/install.sh) v0.9.6 minimal
+```
+
+### 更新 XrayR
+
+```bash
+# 更新到最新版本（自动保持当前已安装的版本类型：标准版或 Minimal 版）
+XrayR update
+
+# 更新到指定版本（保持当前版本类型）
+XrayR update v0.9.6
+
+# 更新/切换到最新 Minimal 版
+XrayR update minimal
+
+# 更新/切换到指定 Minimal 版
+XrayR update v0.9.6 minimal
+
+# 切换回最新标准版
+XrayR update standard
+```
+
 # Docker 安装
 
-```
+### 标准版
+```bash
 docker pull ghcr.io/HoshinoNeko/xrayr:latest && docker run --restart=always --name xrayr -d -v ${PATH_TO_CONFIG}/config.yml:/etc/XrayR/config.yml --network=host ghcr.io/HoshinoNeko/xrayr:latest
+```
+
+### Minimal 版
+```bash
+docker pull ghcr.io/HoshinoNeko/xrayr:latest-minimal && docker run --restart=always --name xrayr -d -v ${PATH_TO_CONFIG}/config.yml:/etc/XrayR/config.yml --network=host ghcr.io/HoshinoNeko/xrayr:latest-minimal
 ```
 
 # Docker compose 安装
 0. 安装docker-compose: 
-```
+```bash
 curl -fsSL https://get.docker.com | bash -s docker
 curl -L "https://github.com/docker/compose/releases/download/1.26.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
@@ -32,7 +93,7 @@ chmod +x /usr/local/bin/docker-compose
 3. 编辑config。
 配置文件基本格式如下，Nodes下可以同时添加多个面板，多个节点配置信息，只需添加相同格式的Nodes item即可。
 4. 启动docker：`docker-compose up -d`
-```
+```yaml
 Log:
   Level: none # Log level: none, error, warning, info, debug 
   AccessPath: # /etc/XrayR/access.Log
@@ -112,7 +173,7 @@ Nodes:
 
 ## Docker compose升级
 在docker-compose.yml目录下执行：
-```
+```bash
 docker-compose pull
 docker-compose up -d
 ```

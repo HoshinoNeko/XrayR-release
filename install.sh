@@ -37,6 +37,10 @@ elif [[ $arch == "aarch64" || $arch == "arm64" ]]; then
     arch="arm64-v8a"
 elif [[ $arch == "s390x" ]]; then
     arch="s390x"
+elif [[ $arch == "i386" || $arch == "i686" || $arch == "x86" ]]; then
+    arch="32"
+elif [[ $arch == "armv7l" || $arch == "armv7" || $arch == "armhf" ]]; then
+    arch="arm32-v7a"
 else
     arch="64"
     echo -e "${red}检测架构失败，使用默认架构: ${arch}${plain}"
@@ -44,8 +48,8 @@ fi
 
 echo "架构: ${arch}"
 
-if [ "$(getconf WORD_BIT)" != '32' ] && [ "$(getconf LONG_BIT)" != '64' ] ; then
-    echo "本软件不支持 32 位系统(x86)，请使用 64 位系统(x86_64)，如果检测有误，请联系作者"
+if [[ "$arch" == "64" ]] && [ "$(getconf WORD_BIT)" != '32' ] && [ "$(getconf LONG_BIT)" != '64' ] ; then
+    echo "本软件 64 位版本不支持 32 位系统，请使用 64 位系统，如果检测有误，请联系作者"
     exit 2
 fi
 
@@ -101,38 +105,75 @@ install_acme() {
 }
 
 install_XrayR() {
-    if [[ -e /usr/local/XrayR/ ]]; then
-        rm /usr/local/XrayR/ -rf
-    fi
+    target_version=""
+    target_type="standard" # 默认标准版，通过指定参数安装 minimal 版本，保证无人值守安装
 
-    mkdir /usr/local/XrayR/ -p
-	cd /usr/local/XrayR/
+    for arg in "$@"; do
+        case "$arg" in
+            minimal|min|--minimal|-m)
+                target_type="minimal"
+                ;;
+            standard|std|full|normal|--standard)
+                target_type="standard"
+                ;;
+            latest)
+                target_version=""
+                ;;
+            v*|[0-9]*)
+                target_version="$arg"
+                ;;
+        esac
+    done
 
-    if  [ $# == 0 ] ;then
+    if [[ -z "$target_version" ]]; then
         last_version=$(curl -Ls "https://api.github.com/repos/HoshinoNeko/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
             echo -e "${red}检测 XrayR 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定 XrayR 版本安装${plain}"
             exit 1
         fi
-        echo -e "检测到 XrayR 最新版本：${last_version}，开始安装"
-        wget -q -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux.zip https://github.com/HoshinoNeko/XrayR/releases/download/${last_version}/XrayR-linux-${arch}.zip
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 XrayR 失败，请确保你的服务器能够下载 Github 的文件${plain}"
-            exit 1
-        fi
+        echo -e "检测到 XrayR 最新版本：${last_version}"
     else
-        if [[ $1 == v* ]]; then
-            last_version=$1
-	else
-	    last_version="v"$1
-	fi
-        url="https://github.com/HoshinoNeko/XrayR/releases/download/${last_version}/XrayR-linux-${arch}.zip"
-        echo -e "开始安装 XrayR ${last_version}"
-        wget -q -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux.zip ${url}
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 XrayR ${last_version} 失败，请确保此版本存在${plain}"
+        if [[ $target_version == v* ]]; then
+            last_version=$target_version
+        else
+            last_version="v"$target_version
+        fi
+    fi
+
+    # Minimal 版本自 v0.9.6 开始支持
+    if [[ "$target_type" == "minimal" ]]; then
+        ver_clean=$(echo "$last_version" | sed 's/^v//')
+        major=$(echo "$ver_clean" | cut -d. -f1)
+        minor=$(echo "$ver_clean" | cut -d. -f2)
+        patch=$(echo "$ver_clean" | cut -d. -f3 | cut -d- -f1)
+        if [[ "$major" -eq 0 && "$minor" -lt 9 ]] || [[ "$major" -eq 0 && "$minor" -eq 9 && "$patch" -lt 6 ]]; then
+            echo -e "${red}错误：Minimal 版本自 v0.9.6 开始提供！指定版本 ${last_version} 无 minimal 版本${plain}"
             exit 1
         fi
+        package_name="XrayR-linux-${arch}-minimal.zip"
+        type_str="Minimal 版"
+    else
+        package_name="XrayR-linux-${arch}.zip"
+        type_str="标准版"
+    fi
+
+    if [[ -e /usr/local/XrayR/ ]]; then
+        rm /usr/local/XrayR/ -rf
+    fi
+
+    mkdir /usr/local/XrayR/ -p
+    cd /usr/local/XrayR/
+
+    url="https://github.com/HoshinoNeko/XrayR/releases/download/${last_version}/${package_name}"
+    echo -e "开始安装 XrayR ${last_version} (${type_str})"
+    wget -q -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux.zip ${url}
+    if [[ $? -ne 0 ]]; then
+        if [[ "$target_type" == "minimal" ]]; then
+            echo -e "${red}下载 XrayR ${last_version} (${type_str}) 失败，请确保此版本存在（minimal 版本自 v0.9.6 开始提供）且网络畅通${plain}"
+        else
+            echo -e "${red}下载 XrayR ${last_version} 失败，请确保此版本存在且网络畅通${plain}"
+        fi
+        exit 1
     fi
 
     unzip XrayR-linux.zip
@@ -142,11 +183,19 @@ install_XrayR() {
     rm /etc/systemd/system/XrayR.service -f
     file="https://github.com/HoshinoNeko/XrayR-release/raw/master/XrayR.service"
     wget -q -N --no-check-certificate -O /etc/systemd/system/XrayR.service ${file}
-    #cp -f XrayR.service /etc/systemd/system/
     systemctl daemon-reload
     systemctl stop XrayR
     systemctl enable XrayR
-    echo -e "${green}XrayR ${last_version}${plain} 安装完成，已设置开机自启"
+
+    if [[ "$target_type" == "minimal" ]]; then
+        echo -e "${green}XrayR Minimal ${last_version}${plain} 安装完成，已设置开机自启"
+        echo -e "${yellow}注意：Minimal 版本不包含 lego 自动证书签发，请在 ControllerConfig 下使用 CertMode: file 配置证书${plain}"
+        [[ -f MINIMAL.md ]] && cp MINIMAL.md /etc/XrayR/
+    else
+        echo -e "${green}XrayR ${last_version}${plain} 安装完成，已设置开机自启"
+        rm -f /etc/XrayR/MINIMAL.md
+    fi
+
     cp geoip.dat /etc/XrayR/
     cp geosite.dat /etc/XrayR/ 
 
@@ -183,8 +232,8 @@ install_XrayR() {
     fi
     curl -o /usr/bin/XrayR -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/XrayR.sh
     chmod +x /usr/bin/XrayR
-    ln -s /usr/bin/XrayR /usr/bin/xrayr # 小写兼容
-    chmod +x /usr/bin/xrayr
+    ln -s /usr/bin/XrayR /usr/bin/xrayr 2>/dev/null # 小写兼容
+    chmod +x /usr/bin/xrayr 2>/dev/null
     cd $cur_dir
     rm -f install.sh
     echo -e ""
@@ -199,9 +248,10 @@ install_XrayR() {
     echo "XrayR disable            - 取消 XrayR 开机自启"
     echo "XrayR log                - 查看 XrayR 日志"
     echo "XrayR update             - 更新 XrayR"
-    echo "XrayR update x.x.x       - 更新 XrayR 指定版本"
+    echo "XrayR update [ver] [type]- 更新 XrayR 指定版本及类型 (standard/minimal)"
     echo "XrayR config             - 显示配置文件内容"
     echo "XrayR install            - 安装 XrayR"
+    echo "XrayR install [ver] [type]- 安装 XrayR 指定版本及类型 (standard/minimal)"
     echo "XrayR uninstall          - 卸载 XrayR"
     echo "XrayR version            - 查看 XrayR 版本"
     echo "------------------------------------------"
@@ -210,4 +260,4 @@ install_XrayR() {
 echo -e "${green}开始安装${plain}"
 install_base
 # install_acme
-install_XrayR $1
+install_XrayR "$@"

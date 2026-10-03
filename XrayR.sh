@@ -5,7 +5,7 @@ green='\033[0;32m'
 yellow='\033[0;33m'
 plain='\033[0m'
 
-version="v1.0.1"
+version="v1.0.2"
 
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}错误: ${plain} 必须使用root用户运行此脚本！\n" && exit 1
@@ -84,9 +84,14 @@ before_show_menu() {
 }
 
 install() {
-    bash <(curl -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/install.sh)
+    is_cli=0
+    if [[ $# -gt 0 && "$1" == "0" ]]; then
+        is_cli=1
+        shift
+    fi
+    bash <(curl -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/install.sh) "$@"
     if [[ $? == 0 ]]; then
-        if [[ $# == 0 ]]; then
+        if [[ $is_cli -eq 0 ]]; then
             start
         else
             start 0
@@ -95,26 +100,97 @@ install() {
 }
 
 update() {
-    if [[ $# == 0 ]]; then
-        echo && echo -n -e "输入指定版本(默认最新版): " && read version
-    else
-        version=$2
-    fi
-#    confirm "本功能会强制重装当前最新版，数据不会丢失，是否继续?" "n"
-#    if [[ $? != 0 ]]; then
-#        echo -e "${red}已取消${plain}"
-#        if [[ $1 != 0 ]]; then
-#            before_show_menu
-#        fi
-#        return 0
-#    fi
-    bash <(curl -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/install.sh) $version
-    if [[ $? == 0 ]]; then
-        echo -e "${green}更新完成，已自动重启 XrayR，请使用 XrayR log 查看运行日志${plain}"
-        exit
+    is_cli=0
+    target_version=""
+    target_type=""
+
+    if [[ $# -gt 0 && "$1" == "0" ]]; then
+        is_cli=1
+        shift
     fi
 
-    if [[ $# == 0 ]]; then
+    # 获取当前已安装版本和类型
+    cur_ver_raw=$(/usr/local/XrayR/XrayR version 2>/dev/null | awk '{print $2}')
+    if [[ -n "$cur_ver_raw" && "$cur_ver_raw" != v* ]]; then
+        cur_ver="v${cur_ver_raw}"
+    else
+        cur_ver="${cur_ver_raw}"
+    fi
+
+    if [[ -f /usr/local/XrayR/MINIMAL.md || -f /etc/XrayR/MINIMAL.md ]]; then
+        cur_type="minimal"
+        cur_type_text="Minimal 版"
+    else
+        cur_type="standard"
+        cur_type_text="标准版"
+    fi
+
+    echo -e "正在检查 XrayR 最新版本..."
+    last_version=$(curl -Ls "https://api.github.com/repos/HoshinoNeko/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+    echo -e "当前安装版本: ${green}${cur_ver:-未知}${plain} (${yellow}${cur_type_text}${plain})"
+    if [[ -n "$last_version" ]]; then
+        echo -e "最新可用版本: ${green}${last_version}${plain}"
+    fi
+
+    # 如果是从菜单进入（is_cli=0），允许用户输入可选版本或参数；命令行模式完全无交互
+    if [[ $is_cli -eq 0 ]]; then
+        echo && read -p "输入指定版本或参数 (回车默认更新当前版本类型至最新版，可输入 minimal / standard / 具体版本号): " menu_input
+        for arg in $menu_input; do
+            case "$arg" in
+                minimal|min|--minimal|-m)
+                    target_type="minimal"
+                    ;;
+                standard|std|full|normal|--standard)
+                    target_type="standard"
+                    ;;
+                latest)
+                    target_version=""
+                    ;;
+                v*|[0-9]*)
+                    target_version="$arg"
+                    ;;
+            esac
+        done
+    else
+        # 命令行模式直接解析参数，完全无交互确认
+        for arg in "$@"; do
+            case "$arg" in
+                minimal|min|--minimal|-m)
+                    target_type="minimal"
+                    ;;
+                standard|std|full|normal|--standard)
+                    target_type="standard"
+                    ;;
+                latest)
+                    target_version=""
+                    ;;
+                v*|[0-9]*)
+                    target_version="$arg"
+                    ;;
+            esac
+        done
+    fi
+
+    # 未指定版本类型时，默认保持当前已安装类型
+    if [[ -z "$target_type" ]]; then
+        target_type="$cur_type"
+    fi
+    # 未指定具体版本时，使用最新版本
+    if [[ -z "$target_version" ]]; then
+        target_version="$last_version"
+    fi
+
+    type_name_show="标准版"
+    [[ "$target_type" == "minimal" ]] && type_name_show="Minimal 版"
+    echo -e "开始更新 XrayR 到 ${green}${target_version:-最新版}${plain} (${yellow}${type_name_show}${plain})..."
+    bash <(curl -Ls https://raw.githubusercontent.com/HoshinoNeko/XrayR-release/master/install.sh) "$target_version" "$target_type"
+    if [[ $? == 0 ]]; then
+        echo -e "${green}更新完成，已自动重启 XrayR，请使用 XrayR log 查看运行日志${plain}"
+        exit 0
+    fi
+
+    if [[ $is_cli -eq 0 ]]; then
         before_show_menu
     fi
 }
@@ -359,6 +435,11 @@ show_enable_status() {
 show_XrayR_version() {
     echo -n "XrayR 版本："
     /usr/local/XrayR/XrayR version
+    if [[ -f /usr/local/XrayR/MINIMAL.md || -f /etc/XrayR/MINIMAL.md ]]; then
+        echo -e "版本类型：${yellow}Minimal 版 (精简版)${plain}"
+    else
+        echo -e "版本类型：${green}标准版${plain}"
+    fi
     echo ""
     if [[ $# == 0 ]]; then
         before_show_menu
@@ -366,28 +447,30 @@ show_XrayR_version() {
 }
 
 show_usage() {
-    echo "XrayR 管理脚本使用方法: "
+    echo "XrayR 管理脚本使用方法 (兼容使用xrayr执行，大小写不敏感): "
     echo "------------------------------------------"
-    echo "XrayR              - 显示管理菜单 (功能更多)"
-    echo "XrayR start        - 启动 XrayR"
-    echo "XrayR stop         - 停止 XrayR"
-    echo "XrayR restart      - 重启 XrayR"
-    echo "XrayR status       - 查看 XrayR 状态"
-    echo "XrayR enable       - 设置 XrayR 开机自启"
-    echo "XrayR disable      - 取消 XrayR 开机自启"
-    echo "XrayR log          - 查看 XrayR 日志"
-    echo "XrayR update       - 更新 XrayR"
-    echo "XrayR update x.x.x - 更新 XrayR 指定版本"
-    echo "XrayR install      - 安装 XrayR"
-    echo "XrayR uninstall    - 卸载 XrayR"
-    echo "XrayR version      - 查看 XrayR 版本"
+    echo "XrayR                    - 显示管理菜单 (功能更多)"
+    echo "XrayR start              - 启动 XrayR"
+    echo "XrayR stop               - 停止 XrayR"
+    echo "XrayR restart            - 重启 XrayR"
+    echo "XrayR status             - 查看 XrayR 状态"
+    echo "XrayR enable             - 设置 XrayR 开机自启"
+    echo "XrayR disable            - 取消 XrayR 开机自启"
+    echo "XrayR log                - 查看 XrayR 日志"
+    echo "XrayR update             - 更新 XrayR"
+    echo "XrayR update [ver] [type]- 更新 XrayR 指定版本及类型 (standard/minimal)"
+    echo "XrayR config             - 显示配置文件内容"
+    echo "XrayR install            - 安装 XrayR"
+    echo "XrayR install [ver] [type]- 安装 XrayR 指定版本及类型 (standard/minimal)"
+    echo "XrayR uninstall          - 卸载 XrayR"
+    echo "XrayR version            - 查看 XrayR 版本"
     echo "------------------------------------------"
 }
 
 show_menu() {
     echo -e "
   ${green}XrayR 后端管理脚本，${plain}${red}不适用于docker${plain}
---- https://github.com/XrayR-project/XrayR ---
+--- https://github.com/HoshinoNeko/XrayR ---
   ${green}0.${plain} 修改配置
 ————————————————
   ${green}1.${plain} 安装 XrayR
@@ -440,7 +523,7 @@ show_menu() {
         ;;
         13) update_shell
         ;;
-        *) echo -e "${red}请输入正确的数字 [0-12]${plain}"
+        *) echo -e "${red}请输入正确的数字 [0-13]${plain}"
         ;;
     esac
 }
@@ -462,11 +545,11 @@ if [[ $# > 0 ]]; then
         ;;
         "log") check_install 0 && show_log 0
         ;;
-        "update") check_install 0 && update 0 $2
+        "update") check_install 0 && shift && update 0 "$@"
         ;;
         "config") config $*
         ;;
-        "install") check_uninstall 0 && install 0
+        "install") check_uninstall 0 && shift && install 0 "$@"
         ;;
         "uninstall") check_install 0 && uninstall 0
         ;;
